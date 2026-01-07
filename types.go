@@ -2,16 +2,19 @@ package helmclient
 
 import (
 	"io"
+	"log/slog"
 	"time"
 
+	"helm.sh/helm/v4/pkg/kube"
 	"k8s.io/client-go/rest"
 
-	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chartutil"
-	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/getter"
-	"helm.sh/helm/v3/pkg/postrender"
-	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/getter"
+	"helm.sh/helm/v4/pkg/postrenderer"
+	"helm.sh/helm/v4/pkg/repo/v1"
+
+	"helm.sh/helm/v4/pkg/chart/common"
 
 	"github.com/mittwald/go-helm-client/values"
 )
@@ -39,7 +42,8 @@ type Options struct {
 	RepositoryCache  string
 	Debug            bool
 	Linting          bool
-	DebugLog         action.DebugLog
+	DebugLog         DebugLog
+	SlogHandler      slog.Handler
 	RegistryConfig   string
 	Output           io.Writer
 }
@@ -57,7 +61,7 @@ func Timeout(d time.Duration) RESTClientOption {
 	}
 }
 
-// Maximum burst for throttle
+// Burst Maximum burst for throttle
 // the created RESTClient will use DefaultBurst: 100.
 func Burst(v int) RESTClientOption {
 	return func(r *rest.Config) {
@@ -84,7 +88,7 @@ type HelmClient struct {
 	ActionConfig *action.Configuration
 	linting      bool
 	output       io.Writer
-	DebugLog     action.DebugLog
+	DebugLog     DebugLog
 }
 
 func (c *HelmClient) GetSettings() *cli.EnvSettings {
@@ -96,14 +100,14 @@ func (c *HelmClient) GetProviders() getter.Providers {
 }
 
 type GenericHelmOptions struct {
-	PostRenderer postrender.PostRenderer
+	PostRenderer postrenderer.PostRenderer
 	RollBack     RollBack
 }
 
 type HelmTemplateOptions struct {
-	KubeVersion *chartutil.KubeVersion
+	KubeVersion *common.KubeVersion
 	// APIVersions defined here will be appended to the default list helm provides
-	APIVersions chartutil.VersionSet
+	APIVersions common.VersionSet
 }
 
 // ChartSpec defines the values of a helm chart
@@ -137,7 +141,7 @@ type ChartSpec struct {
 	Replace bool `json:"replace,omitempty"`
 	// Wait indicates whether to wait for the release to be deployed or not.
 	// +optional
-	Wait bool `json:"wait,omitempty"`
+	WaitStrategy kube.WaitStrategy `json:"waitStrategy,omitempty"`
 	// WaitForJobs indicates whether to wait for completion of release Jobs before marking the release as successful.
 	// 'Wait' has to be specified for this to take effect.
 	// The timeout may be specified via the 'Timeout' field.
@@ -154,10 +158,10 @@ type ChartSpec struct {
 	// NameTemplate is the template used to generate the release name if GenerateName is configured.
 	// +optional
 	NameTemplate string `json:"nameTemplate,omitempty"`
-	// Atomic indicates whether to install resources atomically.
-	// 'Wait' will automatically be set to true when using Atomic.
+	// RollbackOnFailure indicates whether to install resources atomically and revert to the previous state after failure.
+	// 'WaitStrategy' will automatically be set to 'watcher' when using RollbackOnFailure.
 	// +optional
-	Atomic bool `json:"atomic,omitempty"`
+	RollbackOnFailure bool `json:"atomic,omitempty"`
 	// SkipCRDs indicates whether to skip CRDs during installation.
 	// +optional
 	SkipCRDs bool `json:"skipCRDs,omitempty"`
@@ -167,9 +171,12 @@ type ChartSpec struct {
 	// SubNotes indicates whether to print sub-notes.
 	// +optional
 	SubNotes bool `json:"subNotes,omitempty"`
-	// Force indicates whether to force the operation.
+	// ForceReplace indicates whether to force the operation.
 	// +optional
-	Force bool `json:"force,omitempty"`
+	ForceReplace bool `json:"forceReplace,omitempty"`
+	// ForceReplace causes server-side apply to force conflicts ("Overwrite value, become sole manager")
+	// +optional
+	ForceConflicts bool `json:"forceConflicts,omitempty"`
 	// ResetValues indicates whether to reset the values.yaml file during installation.
 	// +optional
 	ResetValues bool `json:"resetValues,omitempty"`
@@ -179,20 +186,20 @@ type ChartSpec struct {
 	// ResetThenReuseValues will reset the values to the chart's built-ins then merge with user's last supplied values.
 	// +optional
 	ResetThenReuseValues bool
-	// Recreate indicates whether to recreate the release if it already exists.
-	// +optional
-	Recreate bool `json:"recreate,omitempty"`
 	// MaxHistory limits the maximum number of revisions saved per release.
 	// +optional
 	MaxHistory int `json:"maxHistory,omitempty"`
 	// CleanupOnFail indicates whether to cleanup the release on failure.
 	// +optional
 	CleanupOnFail bool `json:"cleanupOnFail,omitempty"`
-	// DryRun indicates whether to perform a dry run.
+	// DryRun indicates whether to perform a dry run, used only with uninstall.
+	// To use DryRun please refer to DryRunStrategy in other actions.
 	// +optional
 	DryRun bool `json:"dryRun,omitempty"`
-	// DryRunOption controls whether the operation is prepared, but not executed with options on whether or not to interact with the remote cluster.
-	DryRunOption string `json:"dryRunOption,omitempty"`
+	// DryRunStrategy indicates whether to perform a dry run.
+	// It can be set to prepare, but not execute the operation and whether to interact with the remote cluster
+	// +optional
+	DryRunStrategy action.DryRunStrategy `json:"dryRunStrategy,omitempty"`
 	// Description specifies a custom description for the uninstalled release
 	// +optional
 	Description string `json:"description,omitempty"`
@@ -209,4 +216,33 @@ type ChartSpec struct {
 	// Valid options are orphan, foreground, background. Defaulting to background.
 	// +optional
 	DeletionPropagation string `json:"deletionPropagation,omitempty"`
+	// ServerSideApply enables changes to be applied via Kubernetes server-side apply
+	// Can be: "true", "false" or "auto"
+	// When "auto", sever-side usage will be based upon the releases previous usage
+	// see: https://kubernetes.io/docs/reference/using-api/server-side-apply/
+	ServerSideApply string `json:"serverSideApplyType,omitempty"`
+	// TakeOwnership skips the check for helm annotations and adopts existing resources.
+	// +optional
+	TakeOwnership bool `json:"takeOwnership,omitempty"`
+	// HideNotes indicates whether to suppress notes output.
+	// +optional
+	HideNotes bool `json:"hideNotes,omitempty"`
+	// HideSecret indicates whether to suppress secret values in output.
+	// +optional
+	HideSecret bool `json:"hideSecret,omitempty"`
+	// SkipSchemaValidation indicates whether to skip JSON schema validation.
+	// +optional
+	SkipSchemaValidation bool `json:"skipSchemaValidation,omitempty"`
+	// EnableDNS indicates whether to enable DNS lookups when rendering templates.
+	// +optional
+	EnableDNS bool `json:"enableDNS,omitempty"`
+}
+
+func (spec *ChartSpec) ServerSideApplyEnabled() bool {
+	switch spec.ServerSideApply {
+	case "true":
+		return true
+	default:
+		return false
+	}
 }

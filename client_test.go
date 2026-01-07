@@ -5,11 +5,12 @@ import (
 	"context"
 	"time"
 
-	"helm.sh/helm/v3/pkg/chartutil"
+	"helm.sh/helm/v4/pkg/chart/common"
+	"helm.sh/helm/v4/pkg/kube"
 
-	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v4/pkg/action"
 
-	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v4/pkg/repo/v1"
 	"k8s.io/client-go/rest"
 )
 
@@ -111,12 +112,12 @@ func ExampleHelmClient_AddOrUpdateChartRepo_private() {
 func ExampleHelmClient_InstallOrUpgradeChart() {
 	// Define the chart to be installed
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "stable/etcd-operator",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "stable/etcd-operator",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 	}
 
 	// Install a chart release.
@@ -129,12 +130,12 @@ func ExampleHelmClient_InstallOrUpgradeChart() {
 func ExampleHelmClient_InstallOrUpgradeChart_useChartDirectory() {
 	// Use an unpacked chart directory.
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "/path/to/stable/etcd-operator",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "/path/to/stable/etcd-operator",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 	}
 
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
@@ -145,12 +146,12 @@ func ExampleHelmClient_InstallOrUpgradeChart_useChartDirectory() {
 func ExampleHelmClient_InstallOrUpgradeChart_useLocalChartArchive() {
 	// Use an archived chart directory.
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "/path/to/stable/etcd-operator.tar.gz",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "/path/to/stable/etcd-operator.tar.gz",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 	}
 
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
@@ -161,12 +162,12 @@ func ExampleHelmClient_InstallOrUpgradeChart_useLocalChartArchive() {
 func ExampleHelmClient_InstallOrUpgradeChart_useURL() {
 	// Use an archived chart directory via URL.
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "http://helm.whatever.com/repo/etcd-operator.tar.gz",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "http://helm.whatever.com/repo/etcd-operator.tar.gz",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 	}
 
 	if _, err := helmClient.InstallOrUpgradeChart(context.Background(), &chartSpec, nil); err != nil {
@@ -177,12 +178,12 @@ func ExampleHelmClient_InstallOrUpgradeChart_useURL() {
 func ExampleHelmClient_InstallOrUpgradeChart_useDefaultRollBackStrategy() {
 	// Define the chart to be installed
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "stable/etcd-operator",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "stable/etcd-operator",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 	}
 
 	// Use the default rollback strategy offer by HelmClient (revert to the previous version).
@@ -206,7 +207,7 @@ var _ RollBack = &customRollBack{}
 func (c customRollBack) RollbackRelease(spec *ChartSpec) error {
 	client := action.NewRollback(c.ActionConfig)
 
-	client.Force = true
+	client.ForceReplace = true
 
 	return client.Run(spec.ReleaseName)
 }
@@ -214,12 +215,12 @@ func (c customRollBack) RollbackRelease(spec *ChartSpec) error {
 func ExampleHelmClient_InstallOrUpgradeChart_useCustomRollBackStrategy() {
 	// Define the chart to be installed
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "stable/etcd-operator",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "stable/etcd-operator",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 	}
 
 	// Use a custom rollback strategy (customRollBack needs to implement RollBack).
@@ -239,12 +240,12 @@ func ExampleHelmClient_InstallOrUpgradeChart_useCustomRollBackStrategy() {
 func ExampleHelmClient_LintChart() {
 	// Define a chart with custom values to be tested.
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "stable/etcd-operator",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "stable/etcd-operator",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 		ValuesYaml: `deployments:
   etcdOperator: true
   backupOperator: false`,
@@ -257,19 +258,19 @@ func ExampleHelmClient_LintChart() {
 
 func ExampleHelmClient_TemplateChart() {
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "stable/etcd-operator",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "stable/etcd-operator",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 		ValuesYaml: `deployments:
   etcdOperator: true
   backupOperator: false`,
 	}
 
 	options := &HelmTemplateOptions{
-		KubeVersion: &chartutil.KubeVersion{
+		KubeVersion: &common.KubeVersion{
 			Version: "v1.23.10",
 			Major:   "1",
 			Minor:   "23",
@@ -295,13 +296,13 @@ func ExampleHelmClient_UpdateChartRepos() {
 func ExampleHelmClient_UninstallRelease() {
 	// Define the released chart to be installed.
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "stable/etcd-operator",
-		Namespace:   "default",
-		Wait:        true,
-		Timeout:     32 * time.Second,
-		DryRun:      true,
-		KeepHistory: true,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "stable/etcd-operator",
+		Namespace:    "default",
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
+		DryRun:       true,
+		KeepHistory:  true,
 	}
 
 	// Uninstall the chart release.
@@ -342,12 +343,12 @@ func ExampleHelmClient_GetRelease() {
 func ExampleHelmClient_RollbackRelease() {
 	// Define the released chart to be installed
 	chartSpec := ChartSpec{
-		ReleaseName: "etcd-operator",
-		ChartName:   "stable/etcd-operator",
-		Namespace:   "default",
-		UpgradeCRDs: true,
-		Wait:        true,
-		Timeout:     32 * time.Second,
+		ReleaseName:  "etcd-operator",
+		ChartName:    "stable/etcd-operator",
+		Namespace:    "default",
+		UpgradeCRDs:  true,
+		WaitStrategy: kube.StatusWatcherStrategy,
+		Timeout:      32 * time.Second,
 	}
 
 	// Rollback to the previous version of the release.
